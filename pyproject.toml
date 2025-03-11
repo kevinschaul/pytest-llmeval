@@ -43,6 +43,10 @@ Repository = "https://github.com/kevinschaul/pytest-llmeval"
 [project.entry-points.pytest11]
 llmeval = "pytest_llmeval.plugin"
 
+[tool.pytest.ini_options]
+# Exclude example directory from test collection
+norecursedirs = ["example"]
+
 [tool.pyright]
 venvPath = "."
 venv = ".venv"

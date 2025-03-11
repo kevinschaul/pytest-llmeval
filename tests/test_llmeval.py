@@ -1,61 +1,129 @@
-def test_bar_fixture(pytester):
-    """Make sure that pytest accepts our fixture."""
+import pytest
 
-    # create a temporary pytest test module
-    pytester.makepyfile("""
-        def test_sth(bar):
-            assert bar == "europython2015"
-    """)
 
-    # run pytest with the following cmd args
-    result = pytester.runpytest(
-        '--foo=europython2015',
-        '-v'
+def test_llmeval_marker_registered(pytester):
+    """Test that the llmeval marker is properly registered."""
+    pytester.makepyfile(
+        """
+        import pytest
+        
+        @pytest.mark.llmeval
+        def test_with_marker():
+            assert True
+    """
     )
 
-    # fnmatch_lines does an assertion internally
-    result.stdout.fnmatch_lines([
-        '*::test_sth PASSED*',
-    ])
-
-    # make sure that we get a '0' exit code for the testsuite
+    result = pytester.runpytest("--markers")
+    result.stdout.fnmatch_lines(
+        [
+            "*@pytest.mark.llmeval:*",
+        ]
+    )
     assert result.ret == 0
 
 
-def test_help_message(pytester):
-    result = pytester.runpytest(
-        '--help',
-    )
-    # fnmatch_lines does an assertion internally
-    result.stdout.fnmatch_lines([
-        'llmeval:',
-        '*--foo=DEST_FOO*Set the value for the fixture "bar".',
-    ])
-
-
-def test_hello_ini_setting(pytester):
-    pytester.makeini("""
-        [pytest]
-        HELLO = world
-    """)
-
-    pytester.makepyfile("""
+def test_llmeval_result_fixture(pytester):
+    """Test that the llmeval_result fixture works properly."""
+    pytester.makepyfile(
+        """
         import pytest
+        
+        @pytest.mark.llmeval
+        def test_with_result(llmeval_result):
+            assert llmeval_result is not None
+            llmeval_result.set_result("expected", "expected")
+            assert llmeval_result.is_correct()
+    """
+    )
 
-        @pytest.fixture
-        def hello(request):
-            return request.config.getini('HELLO')
+    result = pytester.runpytest("-v")
+    result.stdout.fnmatch_lines(
+        [
+            "*::test_with_result LLMEVAL*",
+        ]
+    )
+    assert result.ret == 0
 
-        def test_hello_world(hello):
-            assert hello == 'world'
-    """)
 
-    result = pytester.runpytest('-v')
+def test_llmeval_metadata(pytester):
+    """Test that metadata can be added to llmeval results."""
+    pytester.makepyfile(
+        """
+        import pytest
+        
+        @pytest.mark.llmeval(category="sentiment")
+        def test_with_metadata(llmeval_result):
+            assert llmeval_result.metadata["category"] == "sentiment"
+            llmeval_result.add_metadata(difficulty="easy")
+            assert llmeval_result.metadata["difficulty"] == "easy"
+    """
+    )
 
-    # fnmatch_lines does an assertion internally
-    result.stdout.fnmatch_lines([
-        '*::test_hello_world PASSED*',
-    ])
+    result = pytester.runpytest("-v")
+    result.stdout.fnmatch_lines(
+        [
+            "*::test_with_metadata LLMEVAL*",
+        ]
+    )
+    assert result.ret == 0
 
-    # make sure that we get a '0' exit code for the testsuite
+
+def test_llmeval_classification_report(pytester):
+    """Test that the classification report is generated correctly."""
+    pytester.makepyfile(
+        """
+        import pytest
+        
+        @pytest.mark.llmeval
+        @pytest.mark.parametrize("expected,actual", [
+            ("positive", "positive"),
+            ("positive", "negative"),
+            ("negative", "negative"),
+            ("neutral", "neutral"),
+        ])
+        def test_sentiment(llmeval_result, expected, actual):
+            llmeval_result.set_result(expected, actual)
+            # The test itself always passes - we're just collecting results
+            assert True
+    """
+    )
+
+    result = pytester.runpytest("-v")
+    result.stdout.fnmatch_lines(
+        [
+            "*precision*recall*f1-score*support*",
+            "*negative*",
+            "*neutral*",
+            "*positive*",
+            "*accuracy*",
+        ]
+    )
+    assert result.ret == 0
+
+
+def test_multiple_llmeval_tests(pytester):
+    """Test that multiple llmeval tests are reported separately."""
+    pytester.makepyfile(
+        """
+        import pytest
+        
+        @pytest.mark.llmeval
+        def test_binary(llmeval_result):
+            llmeval_result.set_result("yes", "yes")
+            assert True
+        
+        @pytest.mark.llmeval
+        def test_multiclass(llmeval_result):
+            llmeval_result.set_result("class_a", "class_b")
+            assert True
+    """
+    )
+
+    result = pytester.runpytest("-v")
+    result.stdout.re_match_lines(
+        [
+            r".*Test: test_binary.*",
+            r".*Test: test_multiclass.*",
+        ]
+    )
     assert result.ret == 0

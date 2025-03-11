@@ -115,7 +115,7 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
         # Generate metrics report if we have true/predicted values
         if y_true and y_pred:
             # Use sklearn's classification_report directly
-            report = classification_report(y_true, y_pred)
+            report = classification_report(y_true, y_pred, zero_division=0.0)
 
             terminalreporter.write_line("\nClassification Report:")
             terminalreporter.write_line(report)
