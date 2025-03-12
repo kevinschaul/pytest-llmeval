@@ -1,0 +1,6 @@
+test_name,group,class,precision,recall,f1-score,support
+test_save_to_file_csv,overall,False,0.0,0.0,0.0,1.0
+test_save_to_file_csv,overall,True,0.6666666666666666,1.0,0.8,2.0
+test_save_to_file_csv,overall,accuracy,,,0.6666666666666666,3
+test_save_to_file_csv,overall,macro avg,0.3333333333333333,0.5,0.4,3.0
+test_save_to_file_csv,overall,weighted avg,0.4444444444444444,0.6666666666666666,0.5333333333333333,3.0

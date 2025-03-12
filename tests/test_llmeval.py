@@ -1,5 +1,4 @@
 import pytest
-import json
 import csv
 import os
 import io
@@ -7,7 +6,6 @@ import textwrap
 
 from pytest_llmeval.plugin import (
     format_report_as_text,
-    format_report_as_json,
     format_report_as_csv,
 )
 
@@ -123,51 +121,6 @@ class TestLLMEvalFormat:
 
         assert text_data == expected
 
-    def test_format_report_as_json(self, sample_report_data):
-        json_data = format_report_as_json(
-            sample_report_data["test_name"],
-            sample_report_data["num_cases"],
-            sample_report_data["report_dict"],
-        )
-
-        expected = textwrap.dedent(
-            """
-            {
-                "test_name": "test_llm_function",
-                "num_test_cases": 3,
-                "classification_report": {
-                    "False": {
-                        "precision": 0.0,
-                        "recall": 0.0,
-                        "f1-score": 0.0,
-                        "support": 1.0
-                    },
-                    "True": {
-                        "precision": 0.67,
-                        "recall": 1.0,
-                        "f1-score": 0.8,
-                        "support": 2.0
-                    },
-                    "accuracy": 0.67,
-                    "macro avg": {
-                        "precision": 0.33,
-                        "recall": 0.5,
-                        "f1-score": 0.4,
-                        "support": 3.0
-                    },
-                    "weighted avg": {
-                        "precision": 0.44,
-                        "recall": 0.67,
-                        "f1-score": 0.53,
-                        "support": 3.0
-                    }
-                }
-            }
-            """
-        ).strip()
-        json_text = json.dumps(json_data, indent=4)
-        assert json_text == expected
-
     def test_format_report_as_csv(self, sample_report_data):
         csv_rows = format_report_as_csv(
             sample_report_data["test_name"],
@@ -177,12 +130,12 @@ class TestLLMEvalFormat:
 
         expected = textwrap.dedent(
             """
-            test_name,class,precision,recall,f1-score,support
-            test_llm_function,False,0.0,0.0,0.0,1.0
-            test_llm_function,True,0.67,1.0,0.8,2.0
-            test_llm_function,accuracy,,,0.67,3
-            test_llm_function,macro avg,0.33,0.5,0.4,3.0
-            test_llm_function,weighted avg,0.44,0.67,0.53,3.0
+            test_name,group,class,precision,recall,f1-score,support
+            test_llm_function,overall,False,0.0,0.0,0.0,1.0
+            test_llm_function,overall,True,0.67,1.0,0.8,2.0
+            test_llm_function,overall,accuracy,,,0.67,3
+            test_llm_function,overall,macro avg,0.33,0.5,0.4,3.0
+            test_llm_function,overall,weighted avg,0.44,0.67,0.53,3.0
             """
         ).strip()
 
@@ -204,7 +157,7 @@ class TestLLMEvalSave:
             """
             import pytest
             
-            @pytest.mark.llmeval(output_file="results.json")
+            @pytest.mark.llmeval(output_file="results.csv")
             def test_with_output_file(llmeval_result):
                 llmeval_result.set_result(True, True)
                 assert True
@@ -216,9 +169,4 @@ class TestLLMEvalSave:
 
         testdir.runpytest("-v")
 
-        assert os.path.exists(os.path.join(testdir.tmpdir, "results.json"))
-        with open(os.path.join(testdir.tmpdir, "results.json"), "r") as f:
-            data = json.load(f)
-
-        assert "test_name" in data
-        assert "classification_report" in data
+        assert os.path.exists(os.path.join(testdir.tmpdir, "results.csv"))

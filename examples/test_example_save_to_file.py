@@ -12,16 +12,6 @@ def is_computer_related(input):
     return True
 
 
-@pytest.mark.llmeval(output_file='./output/test_save_to_file.json')
-@pytest.mark.parametrize("test_case", TEST_CASES)
-def test_save_to_file_json(llmeval_result, test_case):
-    llmeval_result.set_result(
-        expected=test_case["expected"],
-        actual=is_computer_related(test_case["input"]["text"]),
-        input_data=test_case["input"],
-    )
-    assert llmeval_result.is_correct()
-
 @pytest.mark.llmeval(output_file='./output/test_save_to_file.csv')
 @pytest.mark.parametrize("test_case", TEST_CASES)
 def test_save_to_file_csv(llmeval_result, test_case):
