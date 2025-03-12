@@ -14,7 +14,6 @@ class ClassificationResult:
         self.expected = None
         self.actual = None
         self.input = None
-        self.metadata = {}
         self.group = None
 
     def set_result(self, expected, actual, input_data=None, group=None):
@@ -24,10 +23,6 @@ class ClassificationResult:
         self.input = input_data
         if group:
             self.group = group
-
-    def add_metadata(self, **kwargs):
-        """Add metadata about the test."""
-        self.metadata.update(kwargs)
 
     def is_correct(self):
         """Check if the prediction was correct."""

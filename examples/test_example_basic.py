@@ -29,8 +29,5 @@ def test_something(llmeval_result, test_case):
         input_data=test_case["input"],
     )
 
-    # Add any additional metadata if needed
-    llmeval_result.add_metadata(prompt_tokens=150, completion_tokens=5)
-
     # Regular pytest assertion
     assert llmeval_result.is_correct()

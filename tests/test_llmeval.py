@@ -77,26 +77,6 @@ class TestLLMEvalBase:
         )
         assert result.ret == 0
 
-    def test_llmeval_add_metadata(self, pytester):
-        pytester.makepyfile(
-            """
-            import pytest
-            
-            @pytest.mark.llmeval()
-            def test_with_metadata(llmeval_result):
-                llmeval_result.add_metadata(difficulty="easy")
-                assert llmeval_result.metadata["difficulty"] == "easy"
-        """
-        )
-
-        result = pytester.runpytest("-v")
-        result.stdout.fnmatch_lines(
-            [
-                "*::test_with_metadata LLMEVAL*",
-            ]
-        )
-        assert result.ret == 0
-
 
 class TestLLMEvalFormat:
     def test_format_report_as_text(self, sample_report_data):
@@ -146,18 +126,23 @@ class TestLLMEvalFormat:
         csv_text = output.getvalue().strip()
 
         # Normalize line endings
-        normalized_expected = expected.replace('\r\n', '\n').replace('\r', '\n')
-        normalized_actual = csv_text.replace('\r\n', '\n').replace('\r', '\n')
+        normalized_expected = expected.replace("\r\n", "\n").replace("\r", "\n")
+        normalized_actual = csv_text.replace("\r\n", "\n").replace("\r", "\n")
         assert normalized_actual == normalized_expected
 
 
 class TestLLMEvalSave:
-    def test_marker_output_file(self, testdir):
+    def test_marker_output_file(self, testdir, tmp_path):
+        # Use tmp_path for output file location
+        output_file = tmp_path / "results.csv"
+        
+        # Create a test file that will write to our tmp location
         testdir.makepyfile(
-            """
+            f"""
             import pytest
+            import os
             
-            @pytest.mark.llmeval(output_file="results.csv")
+            @pytest.mark.llmeval(output_file="{output_file}")
             def test_with_output_file(llmeval_result):
                 llmeval_result.set_result(True, True)
                 assert True
@@ -167,6 +152,13 @@ class TestLLMEvalSave:
         """
         )
 
-        testdir.runpytest("-v")
-
-        assert os.path.exists(os.path.join(testdir.tmpdir, "results.csv"))
+        # Run the test
+        result = testdir.runpytest("-v")
+        result.stdout.fnmatch_lines(["*::test_with_output_file LLMEVAL*"])
+        
+        # Verify file was created
+        assert output_file.exists()
+        
+        # Clean up
+        if output_file.exists():
+            output_file.unlink()
