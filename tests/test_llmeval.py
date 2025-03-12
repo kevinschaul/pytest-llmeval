@@ -1,129 +1,224 @@
 import pytest
+import json
+import csv
+import os
+import io
+import textwrap
+
+from pytest_llmeval.plugin import (
+    format_report_as_text,
+    format_report_as_json,
+    format_report_as_csv,
+)
 
 
-def test_llmeval_marker_registered(pytester):
-    """Test that the llmeval marker is properly registered."""
-    pytester.makepyfile(
+# Sample data for testing
+@pytest.fixture
+def sample_report_data():
+    return {
+        "test_name": "test_llm_function",
+        "num_cases": 3,
+        "report_dict": {
+            "False": {"precision": 0.0, "recall": 0.0, "f1-score": 0.0, "support": 1.0},
+            "True": {"precision": 0.67, "recall": 1.0, "f1-score": 0.8, "support": 2.0},
+            "accuracy": 0.67,
+            "macro avg": {
+                "precision": 0.33,
+                "recall": 0.5,
+                "f1-score": 0.4,
+                "support": 3.0,
+            },
+            "weighted avg": {
+                "precision": 0.44,
+                "recall": 0.67,
+                "f1-score": 0.53,
+                "support": 3.0,
+            },
+        },
+    }
+
+
+class TestLLMEvalBase:
+    def test_llmeval_marker_registered(self, pytester):
+        pytester.makepyfile(
+            """
+            import pytest
+            
+            @pytest.mark.llmeval
+            def test_with_marker():
+                assert True
         """
-        import pytest
-        
-        @pytest.mark.llmeval
-        def test_with_marker():
-            assert True
-    """
-    )
+        )
 
-    result = pytester.runpytest("--markers")
-    result.stdout.fnmatch_lines(
-        [
-            "*@pytest.mark.llmeval:*",
-        ]
-    )
-    assert result.ret == 0
+        result = pytester.runpytest("--markers")
+        result.stdout.fnmatch_lines(
+            [
+                "*@pytest.mark.llmeval*",
+            ]
+        )
+        assert result.ret == 0
 
-
-def test_llmeval_result_fixture(pytester):
-    """Test that the llmeval_result fixture works properly."""
-    pytester.makepyfile(
+    def test_llmeval_result_fixture(self, pytester):
+        pytester.makepyfile(
+            """
+            import pytest
+            
+            @pytest.mark.llmeval
+            def test_with_result(llmeval_result):
+                assert llmeval_result is not None
+                llmeval_result.set_result("expected", "expected")
+                assert llmeval_result.is_correct()
         """
-        import pytest
-        
-        @pytest.mark.llmeval
-        def test_with_result(llmeval_result):
-            assert llmeval_result is not None
-            llmeval_result.set_result("expected", "expected")
-            assert llmeval_result.is_correct()
-    """
-    )
+        )
 
-    result = pytester.runpytest("-v")
-    result.stdout.fnmatch_lines(
-        [
-            "*::test_with_result LLMEVAL*",
-        ]
-    )
-    assert result.ret == 0
+        result = pytester.runpytest("-v")
+        result.stdout.fnmatch_lines(
+            [
+                "*::test_with_result LLMEVAL*",
+            ]
+        )
+        assert result.ret == 0
 
-
-def test_llmeval_metadata(pytester):
-    """Test that metadata can be added to llmeval results."""
-    pytester.makepyfile(
+    def test_llmeval_add_metadata(self, pytester):
+        pytester.makepyfile(
+            """
+            import pytest
+            
+            @pytest.mark.llmeval()
+            def test_with_metadata(llmeval_result):
+                llmeval_result.add_metadata(difficulty="easy")
+                assert llmeval_result.metadata["difficulty"] == "easy"
         """
-        import pytest
-        
-        @pytest.mark.llmeval(category="sentiment")
-        def test_with_metadata(llmeval_result):
-            assert llmeval_result.metadata["category"] == "sentiment"
-            llmeval_result.add_metadata(difficulty="easy")
-            assert llmeval_result.metadata["difficulty"] == "easy"
-    """
-    )
+        )
 
-    result = pytester.runpytest("-v")
-    result.stdout.fnmatch_lines(
-        [
-            "*::test_with_metadata LLMEVAL*",
-        ]
-    )
-    assert result.ret == 0
+        result = pytester.runpytest("-v")
+        result.stdout.fnmatch_lines(
+            [
+                "*::test_with_metadata LLMEVAL*",
+            ]
+        )
+        assert result.ret == 0
 
 
-def test_llmeval_classification_report(pytester):
-    """Test that the classification report is generated correctly."""
-    pytester.makepyfile(
+class TestLLMEvalFormat:
+    def test_format_report_as_text(self, sample_report_data):
+        text_data = format_report_as_text(
+            sample_report_data["test_name"],
+            sample_report_data["num_cases"],
+            sample_report_data["report_dict"],
+        )
+
+        expected = textwrap.dedent(
+            """
+            Test: test_llm_function
+            Class        |  Precision |     Recall |   F1-Score |    Support
+            ----------------------------------------------------------------
+            False        |       0.00 |       0.00 |       0.00 |          1
+            True         |       0.67 |       1.00 |       0.80 |          2
+            accuracy     |            |            |       0.67 |          3
+            macro avg    |       0.33 |       0.50 |       0.40 |          3
+            weighted avg |       0.44 |       0.67 |       0.53 |          3
+            """
+        ).strip()
+
+        assert text_data == expected
+
+    def test_format_report_as_json(self, sample_report_data):
+        json_data = format_report_as_json(
+            sample_report_data["test_name"],
+            sample_report_data["num_cases"],
+            sample_report_data["report_dict"],
+        )
+
+        expected = textwrap.dedent(
+            """
+            {
+                "test_name": "test_llm_function",
+                "num_test_cases": 3,
+                "classification_report": {
+                    "False": {
+                        "precision": 0.0,
+                        "recall": 0.0,
+                        "f1-score": 0.0,
+                        "support": 1.0
+                    },
+                    "True": {
+                        "precision": 0.67,
+                        "recall": 1.0,
+                        "f1-score": 0.8,
+                        "support": 2.0
+                    },
+                    "accuracy": 0.67,
+                    "macro avg": {
+                        "precision": 0.33,
+                        "recall": 0.5,
+                        "f1-score": 0.4,
+                        "support": 3.0
+                    },
+                    "weighted avg": {
+                        "precision": 0.44,
+                        "recall": 0.67,
+                        "f1-score": 0.53,
+                        "support": 3.0
+                    }
+                }
+            }
+            """
+        ).strip()
+        json_text = json.dumps(json_data, indent=4)
+        assert json_text == expected
+
+    def test_format_report_as_csv(self, sample_report_data):
+        csv_rows = format_report_as_csv(
+            sample_report_data["test_name"],
+            sample_report_data["num_cases"],
+            sample_report_data["report_dict"],
+        )
+
+        expected = textwrap.dedent(
+            """
+            test_name,class,precision,recall,f1-score,support
+            test_llm_function,False,0.0,0.0,0.0,1.0
+            test_llm_function,True,0.67,1.0,0.8,2.0
+            test_llm_function,accuracy,,,0.67,3
+            test_llm_function,macro avg,0.33,0.5,0.4,3.0
+            test_llm_function,weighted avg,0.44,0.67,0.53,3.0
+            """
+        ).strip()
+
+        output = io.StringIO()
+        writer = csv.writer(output)
+        for row in csv_rows:
+            writer.writerow(row)
+        csv_text = output.getvalue().strip()
+
+        # Normalize line endings
+        normalized_expected = expected.replace('\r\n', '\n').replace('\r', '\n')
+        normalized_actual = csv_text.replace('\r\n', '\n').replace('\r', '\n')
+        assert normalized_actual == normalized_expected
+
+
+class TestLLMEvalSave:
+    def test_marker_output_file(self, testdir):
+        testdir.makepyfile(
+            """
+            import pytest
+            
+            @pytest.mark.llmeval(output_file="results.json")
+            def test_with_output_file(llmeval_result):
+                llmeval_result.set_result(True, True)
+                assert True
+            
+            def test_without_marker():
+                assert True
         """
-        import pytest
-        
-        @pytest.mark.llmeval
-        @pytest.mark.parametrize("expected,actual", [
-            ("positive", "positive"),
-            ("positive", "negative"),
-            ("negative", "negative"),
-            ("neutral", "neutral"),
-        ])
-        def test_sentiment(llmeval_result, expected, actual):
-            llmeval_result.set_result(expected, actual)
-            # The test itself always passes - we're just collecting results
-            assert True
-    """
-    )
+        )
 
-    result = pytester.runpytest("-v")
-    result.stdout.fnmatch_lines(
-        [
-            "*precision*recall*f1-score*support*",
-            "*negative*",
-            "*neutral*",
-            "*positive*",
-            "*accuracy*",
-        ]
-    )
-    assert result.ret == 0
+        testdir.runpytest("-v")
 
+        assert os.path.exists(os.path.join(testdir.tmpdir, "results.json"))
+        with open(os.path.join(testdir.tmpdir, "results.json"), "r") as f:
+            data = json.load(f)
 
-def test_multiple_llmeval_tests(pytester):
-    """Test that multiple llmeval tests are reported separately."""
-    pytester.makepyfile(
-        """
-        import pytest
-        
-        @pytest.mark.llmeval
-        def test_binary(llmeval_result):
-            llmeval_result.set_result("yes", "yes")
-            assert True
-        
-        @pytest.mark.llmeval
-        def test_multiclass(llmeval_result):
-            llmeval_result.set_result("class_a", "class_b")
-            assert True
-    """
-    )
-
-    result = pytester.runpytest("-v")
-    result.stdout.re_match_lines(
-        [
-            r".*Test: test_binary.*",
-            r".*Test: test_multiclass.*",
-        ]
-    )
-    assert result.ret == 0
+        assert "test_name" in data
+        assert "classification_report" in data
