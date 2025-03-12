@@ -12,13 +12,13 @@ This [pytest](https://github.com/pytest-dev/pytest) plugin was generated with [C
 
 ## Usage
 
-See full usage examples in [example/](example/).
+See full usage examples in [examples/](examples/).
 
 The basic usage is:
 
 1. Mark test with the decorator `@pytest.mark.llmeval`, storing the test case details on `llmeval_result`:
 
-```
+```python
 @pytest.mark.llmeval
 def test_llm_dog_or_cat(llmeval_result):
     # Basic example, but these can be parametrized
@@ -64,10 +64,10 @@ weighted avg       0.77      0.77      0.76       400
 
 ## Installation
 
-You can install "pytest-llmeval" via [pip](https://pypi.org/project/pip/) from [PyPI](https://pypi.org/project):
+You can install "pytest-llmeval" via [pipx](https://pipx.pypa.io/stable/):
 
 ```
-$ pip install pytest-llmeval
+pipx install pytest-llmeval
 ```
 
 ## Contributing
