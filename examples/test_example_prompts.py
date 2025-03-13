@@ -12,9 +12,9 @@ TEST_CASES = [
 ]
 
 
-def is_computer_related(prompt_template, input):
+def llm_is_computer_related(prompt_template, input):
     # Fake -- this would call an LLM and return the result.
-    return True
+    return prompt_template.startswith('Is this')
 
 
 @pytest.mark.llmeval(output_file="./output/test_example_prompts.txt")
@@ -23,7 +23,7 @@ def is_computer_related(prompt_template, input):
 def test_prompts(llmeval_result, prompt_template, test_case):
     llmeval_result.set_result(
         expected=test_case["expected"],
-        actual=is_computer_related(prompt_template, test_case["input"]["text"]),
+        actual=llm_is_computer_related(prompt_template, test_case["input"]["text"]),
         input_data=test_case["input"],
         group=prompt_template,
     )

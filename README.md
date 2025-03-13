@@ -14,53 +14,127 @@ This [pytest](https://github.com/pytest-dev/pytest) plugin was generated with [C
 
 See full usage examples in [examples/](examples/).
 
-The basic usage is:
+The main interface for this plugin is the `@pytest.mark.llmeval()` decorator, which injects an `llmeval_result` parameter into your test function.
 
-1. Mark test with the decorator `@pytest.mark.llmeval`, storing the test case details on `llmeval_result`:
+### Basic Usage
+
+You can run the same code cross multiple test cases by using pytest's [parametrize](https://docs.pytest.org/en/stable/example/parametrize.html) functionality.
 
 ```python
-@pytest.mark.llmeval
-def test_llm_dog_or_cat(llmeval_result):
-    # Basic example, but these can be parametrized
-    test_case = {
-        "input": "Tony the Tiger",
-        "expected": "cat",
-    }
+TEST_CASES = [
+    {"input": "I need to debug this Python code", "expected": True},
+    {"input": "The cat jumped over the lazy dog", "expected": False},
+    {"input": "My monitor keeps flickering", "expected": True},
+]
 
-    # Call the llm
-    result = llm_dog_or_cat(test_case["input"])
+@pytest.mark.llmeval()
+@pytest.mark.parametrize("test_case", TEST_CASES)
+def test_computer_related(llmeval_result, test_case):
+
+    # Run your llm code that returns a result for this test case
+    result = llm_is_computer_related(test_case["input"])
 
     # Store the details on `llmeval_result`
     llmeval_result.set_result(
-        input_data=test_case["input"]
+        input_data=test_case["input"],
         expected=test_case["expected"],
         actual=result,
+    )
+
+    # `assert` whether the actual result was the expected result
+    assert llmeval_result.is_correct()
+```
+
+Run test like normal (with `uv run pytest` or similar) When the tests complete, a [classification report](https://scikit-learn.org/stable/modules/model_evaluation.html#classification-report) will be printed to stdout, in a format like:
+
+```
+# LLM Eval: test_computer_related
+
+## Group: overall
+              precision    recall  f1-score   support
+
+        True       0.00      0.00      0.00         1
+       False       0.67      1.00      0.80         2
+
+    accuracy                           0.67         3
+   macro avg       0.33      0.50      0.40         3
+weighted avg       0.44      0.67      0.53         3
+```
+
+### Comparing different prompts
+
+You can run compare different prompts or other variables by specifying `llmeval.set_result()`'s `group=` parameter:
+
+```python
+PROMPT_TEMPLATES = [
+    f"Is this computer related? Say True or False",
+    f"Say True or False: Is this computer related?",
+]
+
+TEST_CASES = [
+    {"input": "I need to debug this Python code", "expected": True},
+    {"input": "The cat jumped over the lazy dog", "expected": False},
+    {"input": "My monitor keeps flickering", "expected": True},
+]
+
+@pytest.mark.llmeval()
+@pytest.mark.parametrize("prompt_template", PROMPT_TEMPLATES)
+@pytest.mark.parametrize("test_case", TEST_CASES)
+def test_prompts(llmeval_result, prompt_template, test_case):
+    result = llm_is_computer_related(test_case["input"])
+
+    llmeval_result.set_result(
+        input_data=test_case["input"],
+        expected=test_case["expected"],
+        actual=result,
+        group=prompt_template,
     )
     assert llmeval_result.is_correct()
 ```
 
-2. Run test like normal (with `uv run pytest` or similar)
-
-3. When the tests complete, a [classification report](https://scikit-learn.org/stable/modules/model_evaluation.html#classification-report) will be printed to stdout, in a format like:
-
 ```
-======================= LLM Evaluation Results ========================
+# LLM Eval: test_prompts
 
-Test: test_llm_dog_or_cat
-Number of test cases: 400
-
-Classification Report:
+## Group: Is this computer related? Say True or False
               precision    recall  f1-score   support
 
-       False       0.74      0.81      0.78       200
-        True       0.79      0.72      0.75       200
+       False       0.00      0.00      0.00         1
+        True       0.67      1.00      0.80         2
 
-    accuracy                           0.77       400
-   macro avg       0.77      0.77      0.76       400
-weighted avg       0.77      0.77      0.76       400
+    accuracy                           0.67         3
+   macro avg       0.33      0.50      0.40         3
+weighted avg       0.44      0.67      0.53         3
 
-==================== End of LLM Evaluation Results ====================
+
+## Group: Say True or False: Is this computer related?
+              precision    recall  f1-score   support
+
+       False       0.33      1.00      0.50         1
+        True       0.00      0.00      0.00         2
+
+    accuracy                           0.33         3
+   macro avg       0.17      0.50      0.25         3
+weighted avg       0.11      0.33      0.17         3
 ```
+
+### Saving reports
+
+You can save evaluation results to a file by providing the `@pytest.mark.llmeval()` the `file_path` parameter:
+
+```python
+@pytest.mark.llmeval(file_path="results/test_prompts.txt")
+def test_prompts(llmeval_result, prompt_template, test_case):
+    # Your test code here
+    pass
+```
+
+## API
+
+TODO
+
+### `@pytest.mark.llmeval()`
+
+Marks a test function for evaluation. The test function will be passed the parameter `llmeval_result`.
 
 ## Installation
 

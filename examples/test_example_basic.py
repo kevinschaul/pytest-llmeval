@@ -7,7 +7,7 @@ TEST_CASES = [
 ]
 
 
-def is_computer_related(input):
+def llm_is_computer_related(input):
     # Fake -- this would call an LLM and return the result.
     return True
 
@@ -20,7 +20,7 @@ def test_basic(llmeval_result, test_case):
     # https://docs.pytest.org/en/stable/how-to/parametrize.html
 
     # Run the actual test
-    actual_result = is_computer_related(test_case["input"]["text"])
+    actual_result = llm_is_computer_related(test_case["input"]["text"])
 
     # Record the result
     llmeval_result.set_result(
