@@ -1,7 +1,0 @@
-test_name,group,class,sample_size,precision,recall,f1
-test_parametrized_prompt_template,Is this computer related? Say True or False,False,1,0.0,0.0,0.0
-test_parametrized_prompt_template,Is this computer related? Say True or False,True,2,0.67,1.0,0.8
-test_parametrized_prompt_template,Is this computer related? Say True or False,,3,0.335,0.5,0.4
-test_parametrized_prompt_template,Say True or False: Is this computer related?,False,1,0.0,0.0,0.0
-test_parametrized_prompt_template,Say True or False: Is this computer related?,True,2,0.67,1.0,0.8
-test_parametrized_prompt_template,Say True or False: Is this computer related?,,3,0.335,0.5,0.4

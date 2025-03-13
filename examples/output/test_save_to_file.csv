@@ -1,4 +1,0 @@
-test_name,group,class,sample_size,precision,recall,f1
-test_save_to_file_csv,overall,False,1,0.0,0.0,0.0
-test_save_to_file_csv,overall,True,2,0.67,1.0,0.8
-test_save_to_file_csv,overall,,3,0.335,0.5,0.4

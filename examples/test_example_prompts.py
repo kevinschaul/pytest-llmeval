@@ -17,11 +17,10 @@ def is_computer_related(prompt_template, input):
     return True
 
 
-# Example using the group parameter in set_result with output file
-@pytest.mark.llmeval(output_file="./output/prompt_comparison.csv")
+@pytest.mark.llmeval(output_file="./output/test_example_prompts.txt")
 @pytest.mark.parametrize("prompt_template", PROMPT_TEMPLATES)
 @pytest.mark.parametrize("test_case", TEST_CASES)
-def test_parametrized_prompt_template(llmeval_result, prompt_template, test_case):
+def test_prompts(llmeval_result, prompt_template, test_case):
     llmeval_result.set_result(
         expected=test_case["expected"],
         actual=is_computer_related(prompt_template, test_case["input"]["text"]),

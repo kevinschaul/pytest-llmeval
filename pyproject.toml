@@ -46,6 +46,7 @@ llmeval = "pytest_llmeval.plugin"
 [tool.pytest.ini_options]
 # Exclude example directory from test collection
 norecursedirs = ["examples"]
+pytester_example_dir = "."
 
 [tool.pyright]
 venvPath = "."

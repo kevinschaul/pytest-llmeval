@@ -14,7 +14,7 @@ def is_computer_related(input):
 
 @pytest.mark.llmeval()
 @pytest.mark.parametrize("test_case", TEST_CASES)
-def test_something(llmeval_result, test_case):
+def test_basic(llmeval_result, test_case):
     # `llmeval_result` is provided by `@pytest.mark.llmeval()`
     # `test_case` is provided by `@pytest.mark.parametrize("test_case", TEST_CASES)`
     # https://docs.pytest.org/en/stable/how-to/parametrize.html
