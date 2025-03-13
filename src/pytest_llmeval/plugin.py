@@ -1,6 +1,7 @@
 import pytest
 from pathlib import Path
 from collections import defaultdict
+from typing import cast, TypedDict, Dict
 from sklearn.metrics import classification_report
 
 # Store all results from decorated tests
@@ -8,21 +9,37 @@ test_results = {}
 # Store output file configurations
 output_file_configs = {}
 
+DEFAULT_GROUP = "overall"
+
+
+ClassificationReport = TypedDict(
+    "ClassificationReport",
+    {
+        "test_name": str,
+        "group": str,
+        "class": str,
+        "sample_size": int,
+        "precision": float,
+        "recall": float,
+        "f1": float,
+    },
+)
+ClassificationReportsByTestName = Dict[str, ClassificationReport]
+
 
 class ClassificationResult:
-    def __init__(self):
-        self.expected = None
-        self.actual = None
-        self.input = None
-        self.group = None
+    def __init__(self, expected=None, actual=None, input_data=None, group=None):
+        self.expected = expected
+        self.actual = actual
+        self.input = input_data
+        self.group = group
 
-    def set_result(self, expected, actual, input_data=None, group=None):
+    def set_result(self, expected, actual, input_data=None, group=DEFAULT_GROUP):
         """Set the main result data."""
         self.expected = expected
         self.actual = actual
         self.input = input_data
-        if group:
-            self.group = group
+        self.group = group
 
     def is_correct(self):
         """Check if the prediction was correct."""
@@ -41,7 +58,6 @@ class LLMEvalReportPlugin:
         if marker:
             self.llmeval_nodes.add(item.nodeid)
 
-            # Extract output_file from marker kwargs if present
             if marker.kwargs.get("output_file"):
                 output_file_configs[item.nodeid] = marker.kwargs.get("output_file")
 
@@ -78,217 +94,204 @@ def llmeval_result(request):
     return None
 
 
-def get_grouped_results():
+def get_grouped_results(test_results):
     """Group all results by test function rather than by individual parametrized runs."""
-    grouped_results = defaultdict(list)
-    group_by_metadata = defaultdict(lambda: defaultdict(list))
+    results_by_test_func = defaultdict(list)
+    results_by_group = defaultdict(lambda: defaultdict(list))
 
     for nodeid, result in test_results.items():
         # Extract the test function name (remove parameter part)
         test_func = nodeid.split("[")[0]
-        grouped_results[test_func].append(result)
+        results_by_test_func[test_func].append(result)
 
-        # If group is specified for this result, also group by that
-        if result.group:
-            group_by_metadata[test_func][result.group].append(result)
+        group = result.group or DEFAULT_GROUP
+        results_by_group[test_func][group].append(result)
 
-    return grouped_results, group_by_metadata
+    return results_by_test_func, results_by_group
 
 
-def format_report_as_text(test_name, num_cases, report_dict):
+def calculate_macro_averages(classes):
     """
-    Format the classification report as plain text with properly aligned columns.
+    Calculate macro averages for precision, recall, and F1 score.
+    
+    Args:
+        classes: Dictionary of class names to metrics dictionaries
+        
+    Returns:
+        tuple: (avg_precision, avg_recall, avg_f1)
+    """
+    # Get class names, excluding any special keys like "accuracy"
+    class_names = [c for c in classes.keys() if c != "accuracy"]
+    
+    if not class_names:
+        return 0, 0, 0
+        
+    # Calculate macro averages (simple average across classes)
+    avg_precision = sum(classes[c]["precision"] for c in class_names) / len(class_names)
+    avg_recall = sum(classes[c]["recall"] for c in class_names) / len(class_names)
+    avg_f1 = sum(classes[c]["f1-score"] for c in class_names) / len(class_names)
+    
+    return avg_precision, avg_recall, avg_f1
+
+
+def format_report_as_text(test_name, groups):
+    """
+    Format the classification report as plain text with group comparison.
 
     Args:
         test_name: Name of the test function
-        num_cases: Number of test cases
-        report_dict: Dictionary representation of the classification report
+        groups: List of classification reports
 
     Returns:
-        str: Formatted text report
+        list: List of text lines for the formatted report
     """
-    lines = []
-    lines.append(f"Test: {test_name}")
+    text_lines = []
+    text_lines.append(f"Test: {test_name}")
 
-    # Calculate column widths for proper alignment
-    class_width = max(len(str(k)) for k in report_dict.keys())
-    class_width = max(class_width, len("Class"))  # Ensure header fits
+    group_data = {}
+    for report in groups:
+        group_name = report["group"]
+        class_name = report["class"]
 
-    # Define column widths
-    precision_width = 10
-    recall_width = 10
-    f1_width = 10
-    support_width = 10
+        if group_name not in group_data:
+            group_data[group_name] = {}
 
-    # Create the header with proper alignment
-    header = (
-        f"{'Class':<{class_width}} | "
-        f"{'Precision':>{precision_width}} | "
-        f"{'Recall':>{recall_width}} | "
-        f"{'F1-Score':>{f1_width}} | "
-        f"{'Support':>{support_width}}"
+        group_data[group_name][class_name] = {
+            "precision": report["precision"],
+            "recall": report["recall"],
+            "f1-score": report["f1"],
+            "support": report["sample_size"],
+        }
+
+        if "accuracy" not in group_data[group_name]:
+            group_data[group_name]["accuracy"] = report["accuracy"]
+
+    text_lines.append("\nGroup Legend:")
+    group_ids = {group: f"G{i+1}" for i, group in enumerate(group_data.keys())}
+    for group, group_id in group_ids.items():
+        text_lines.append(f"{group_id}: {group}")
+
+    text_lines.append("\nMetrics Comparison:")
+    text_lines.append(
+        f"Group | Class | Sample Size | Accuracy | Precision | Recall |   F1"
     )
-    lines.append(header)
+    text_lines.append("-" * 66)
 
-    # Add separator line
-    separator = "-" * (
-        class_width + precision_width + recall_width + f1_width + support_width + 12
-    )
-    lines.append(separator)
+    # Add rows for each group and class
+    for group_name, classes in group_data.items():
+        group_id = group_ids[group_name]
 
-    # Add data rows with proper alignment
-    for class_name, metrics in report_dict.items():
-        if isinstance(metrics, dict):
-            row = (
-                f"{class_name:<{class_width}} | "
-                f"{metrics.get('precision', 0.0):>{precision_width}.2f} | "
-                f"{metrics.get('recall', 0.0):>{recall_width}.2f} | "
-                f"{metrics.get('f1-score', 0.0):>{f1_width}.2f} | "
-                f"{metrics.get('support', 0):>{support_width}.0f}"
-            )
-            lines.append(row)
-        else:
-            # Handle special cases like 'accuracy'
-            row = (
-                f"{class_name:<{class_width}} | "
-                f"{'':{precision_width}} | "
-                f"{'':{recall_width}} | "
-                f"{metrics:{f1_width}.2f} | "
-                f"{num_cases:>{support_width}}"
-            )
-            lines.append(row)
+        # Sort classes to ensure consistent order
+        class_names = sorted([c for c in classes.keys() if c != "accuracy"])
 
-    return "\n".join(lines)
+        # First add class-specific rows
+        for class_name in class_names:
+            metrics = classes[class_name]
+            # Use class's own accuracy
+            class_accuracy = accuracy = classes.get("accuracy", 0)
+            row = f"{group_id:<5} | {class_name:<5} | {metrics['support']:>11} | {class_accuracy:>8.2f} | {metrics['precision']:>9.2f} | {metrics['recall']:>6.2f} | {metrics['f1-score']:>3.2f}"
+            text_lines.append(row)
+
+        # Add the group summary row
+        total_samples = sum(classes[c]["support"] for c in classes if c != "accuracy")
+        accuracy = classes.get("accuracy", 0)
+        # Calculate macro average for precision, recall, f1
+        avg_precision, avg_recall, avg_f1 = calculate_macro_averages(classes)
+        row = f"{group_id:<5} | {'':<5} | {total_samples:>11} | {accuracy:>8.2f} | {avg_precision:>9.2f} | {avg_recall:>6.2f} | {avg_f1:>3.2f}"
+        text_lines.append(row)
+
+    return text_lines
 
 
-def format_report_as_csv(test_name, num_cases, report_dict, groups=None):
+def format_report_as_csv(test_name, groups):
     """
     Format the classification report as CSV rows.
 
     Args:
         test_name: Name of the test function
-        num_cases: Number of test cases
-        report_dict: Dictionary representation of the classification report
-        groups: Optional dictionary of group metrics
+        groups: List of classification reports
 
     Returns:
         list: List of CSV rows (each row is a list of values)
     """
     rows = []
 
-    if not groups:
-        # Standard format without groups
-        # Header row
-        rows.append(
-            [
-                "test_name",
-                "group",
-                "class",
-                "precision",
-                "recall",
-                "f1-score",
-                "support",
-            ]
-        )
+    # Header row
+    rows.append(
+        [
+            "test_name",
+            "group",
+            "class",
+            "sample_size",
+            "precision",
+            "recall",
+            "f1",
+        ]
+    )
 
-        # Data rows for overall results
-        for class_name, metrics in report_dict.items():
-            if isinstance(metrics, dict):
+    # Convert list of reports to a group-based dictionary
+    group_data = {}
+    for report in groups:
+        group_name = report["group"]
+        class_name = report["class"]
+
+        if group_name not in group_data:
+            group_data[group_name] = {}
+
+        group_data[group_name][class_name] = {
+            "precision": report["precision"],
+            "recall": report["recall"],
+            "f1-score": report["f1"],
+            "support": report["sample_size"],
+            "accuracy": report["accuracy"],
+        }
+
+    # Add a row for each group and class
+    for group_name, classes in group_data.items():
+        for class_name, metrics in classes.items():
+            if class_name != "accuracy":
                 rows.append(
                     [
                         test_name,
-                        "overall",  # No group for overall results
+                        group_name,
                         class_name,
-                        metrics.get("precision", ""),
-                        metrics.get("recall", ""),
-                        metrics.get("f1-score", ""),
-                        metrics.get("support", ""),
+                        metrics["support"],
+                        metrics["precision"],
+                        metrics["recall"],
+                        metrics["f1-score"],
                     ]
                 )
-            else:
-                # Handle special cases like 'accuracy'
-                rows.append(
-                    [test_name, "overall", class_name, "", "", metrics, num_cases]
-                )
-    else:
-        # Format with groups in a flat structure
-        # Add a header row
+
+        # Add a summary row for the group
+        total_samples = sum(classes[c]["support"] for c in classes if c != "accuracy")
+        accuracy = next(iter(classes.values())).get("accuracy", 0)
+
+        # Calculate macro averages for the metrics (like sklearn does)
+        avg_precision, avg_recall, avg_f1 = calculate_macro_averages(classes)
+
         rows.append(
             [
-                "test_name",
-                "group",
-                "class",
-                "precision",
-                "recall",
-                "f1-score",
-                "support",
+                test_name,
+                group_name,
+                "",  # No class for summary row
+                total_samples,
+                avg_precision,
+                avg_recall,
+                avg_f1,
             ]
         )
-
-        # First add rows for overall results
-        for class_name, metrics in report_dict.items():
-            if isinstance(metrics, dict):
-                rows.append(
-                    [
-                        test_name,
-                        "overall",  # Mark as overall results
-                        class_name,
-                        metrics.get("precision", ""),
-                        metrics.get("recall", ""),
-                        metrics.get("f1-score", ""),
-                        metrics.get("support", ""),
-                    ]
-                )
-            else:
-                # Handle special cases like 'accuracy'
-                rows.append(
-                    [test_name, "overall", class_name, "", "", metrics, num_cases]
-                )
-
-        # Then add rows for each group's results
-        for group_name, group_data in groups.items():
-            for class_name, metrics in group_data["report"].items():
-                if isinstance(metrics, dict):
-                    rows.append(
-                        [
-                            test_name,
-                            group_name,  # Use the full group name
-                            class_name,
-                            metrics.get("precision", ""),
-                            metrics.get("recall", ""),
-                            metrics.get("f1-score", ""),
-                            metrics.get("support", ""),
-                        ]
-                    )
-                else:
-                    # Handle special cases like 'accuracy'
-                    rows.append(
-                        [
-                            test_name,
-                            group_name,
-                            class_name,
-                            "",
-                            "",
-                            metrics,
-                            group_data["count"],
-                        ]
-                    )
 
     return rows
 
 
-def save_classification_report(
-    test_name, num_cases, report_dict, output_path, groups=None
-):
+def save_classification_report(test_name, groups, output_path):
     """
     Save the classification report to a file.
 
     Args:
         test_name: Name of the test function
-        num_cases: Number of test cases
-        report_dict: Dictionary representation of the classification report
         output_path: Path to save the report to
-        groups: Optional dictionary of group metrics
+        groups: Dictionary of classification reports
     """
     output_path = Path(output_path)
 
@@ -301,70 +304,70 @@ def save_classification_report(
     if ext == ".csv":
         import csv
 
-        csv_rows = format_report_as_csv(test_name, num_cases, report_dict, groups)
+        csv_rows = format_report_as_csv(test_name, groups)
         with open(output_path, "w", newline="") as f:
             writer = csv.writer(f)
             for row in csv_rows:
                 writer.writerow(row)
     else:
         # Default to plain text for any other extension
-        # For text format, we'll add a simple comparison table if groups are present
-        text_lines = []
-        text_lines.append(format_report_as_text(test_name, num_cases, report_dict))
-
-        if groups:
-            # Add group legend
-            text_lines.append("\nGroup Legend:")
-            text_lines.append("-" * 80)
-            group_ids = {group: f"G{i+1}" for i, group in enumerate(groups.keys())}
-            for group, group_id in group_ids.items():
-                text_lines.append(f"{group_id}: {group}")
-
-            # Add comparison table
-            text_lines.append("\nMetrics Comparison:")
-            text_lines.append("-" * 80)
-
-            # Collect all labels
-            all_labels = set()
-            for group_name, group_data in groups.items():
-                for label in group_data["report"].keys():
-                    if (
-                        not label.startswith("macro")
-                        and not label.startswith("weighted")
-                        and label != "accuracy"
-                    ):
-                        all_labels.add(label)
-
-            # Create header
-            header = f"{'Metric':<15} | {'Class':<10} |"
-            for group in groups:
-                group_id = group_ids[group]
-                header += f" {group_id:<3} |"
-            text_lines.append(header)
-            text_lines.append("-" * (17 + 12 + (5 * len(groups))))
-
-            # Add rows for each metric and class
-            for metric in ["precision", "recall", "f1-score"]:
-                for label in sorted(all_labels):
-                    row = f"{metric:<15} | {str(label):<10} |"
-                    for group in groups:
-                        if label in groups[group]["report"]:
-                            value = groups[group]["report"][label].get(metric, 0.0)
-                            row += f" {value:>3.2f} |"
-                        else:
-                            row += f" {'':<3} |"
-                    text_lines.append(row)
-
-            # Add accuracy row
-            row = f"{'accuracy':<15} | {'':<10} |"
-            for group in groups:
-                value = groups[group]["report"].get("accuracy", 0.0)
-                row += f" {value:>3.2f} |"
-            text_lines.append(row)
-
-        # Write to file
+        text_lines = format_report_as_text(test_name, groups)
         with open(output_path, "w") as f:
             f.write("\n".join(text_lines))
+
+
+def generate_classification_reports(test_results) -> ClassificationReportsByTestName:
+    results_by_test_func, results_by_group = get_grouped_results(test_results)
+    report_data = {}
+
+    # Process each test function's results
+    for test_func, results in results_by_test_func.items():
+        test_name = test_func.split("::")[-1]
+
+        group_data = []
+        for group_name, group_results in results_by_group[test_func].items():
+            group_y_true = []
+            group_y_pred = []
+
+            for result in group_results:
+                if result.expected is not None and result.actual is not None:
+                    group_y_true.append(str(result.expected))
+                    group_y_pred.append(str(result.actual))
+
+            if group_y_true and group_y_pred:
+                report_raw = classification_report(
+                    group_y_true,
+                    group_y_pred,
+                    zero_division=0,  # type: ignore
+                    output_dict=True,
+                )
+                if isinstance(report_raw, Dict):
+                    for key, value in report_raw.items():
+                        if isinstance(value, Dict) and key not in [
+                            "macro avg",
+                            "weighted avg",
+                        ]:
+                            # Round all values to 2 decimal places for consistency with tests
+                            overall_accuracy = round(report_raw.get("accuracy", 0.0), 2)
+                            accuracy = overall_accuracy if key == "True" else 0.0
+
+                            report = cast(
+                                ClassificationReport,
+                                {
+                                    "test_name": test_name,
+                                    "group": group_name,
+                                    "class": key,
+                                    "sample_size": int(value.get("support", 0)),
+                                    "accuracy": accuracy,
+                                    "precision": round(value.get("precision", 0.0), 2),
+                                    "recall": round(value.get("recall", 0.0), 2),
+                                    "f1": round(value.get("f1-score", 0.0), 2),
+                                },
+                            )
+                            group_data.append(report)
+
+        report_data[test_name] = group_data
+    return report_data
 
 
 @pytest.hookimpl(trylast=True)
@@ -375,234 +378,34 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
 
     terminalreporter.write_sep("=", "LLM Evaluation Results")
 
-    # Group results by test function (for parameterized tests)
-    grouped_results, group_by_metadata = get_grouped_results()
+    grouped_reports = generate_classification_reports(test_results)
 
-    # Process each test function's results
-    for test_func, results in grouped_results.items():
-        test_name = test_func.split("::")[-1]
+    for test_name, groups in grouped_reports.items():
+        text_lines = format_report_as_text(test_name, groups)
 
-        y_true = []
-        y_pred = []
+        for line in text_lines:
+            terminalreporter.write_line(line)
 
-        for result in results:
-            if result.expected is not None and result.actual is not None:
-                y_true.append(str(result.expected))
-                y_pred.append(str(result.actual))
-
-        # Generate metrics report if we have true/predicted values
-        if y_true and y_pred:
-            # Generate report dictionary
-            report_dict = classification_report(
-                y_true, y_pred, zero_division=0.0, output_dict=True
-            )
-
-            # Format the text report using our utility function
-            text_report = format_report_as_text(test_name, len(results), report_dict)
-
-            # Write to terminal
-            for line in text_report.split("\n"):
-                terminalreporter.write_line(line)
-
-            # Check if we need to save to a file
-            # Get the first nodeid for this test function to check for output_file
-            first_nodeid = next(
-                (
-                    nodeid
-                    for nodeid in test_results.keys()
-                    if nodeid.startswith(test_func)
-                ),
-                None,
-            )
-            if first_nodeid and first_nodeid in output_file_configs:
-                output_file = output_file_configs[first_nodeid]
-                if output_file:
-                    # If we have groups, save a report with group comparison
-                    if (
-                        test_func in group_by_metadata
-                        and group_by_metadata[test_func]
-                        and len(group_by_metadata[test_func]) > 1
-                    ):
-                        # Extract the group metrics in the format needed for saving
-                        groups_for_saving = {}
-                        for group_name, group_results in group_by_metadata[
-                            test_func
-                        ].items():
-                            group_y_true = []
-                            group_y_pred = []
-
-                            for result in group_results:
-                                if (
-                                    result.expected is not None
-                                    and result.actual is not None
-                                ):
-                                    group_y_true.append(str(result.expected))
-                                    group_y_pred.append(str(result.actual))
-
-                            if group_y_true and group_y_pred:
-                                group_report_dict = classification_report(
-                                    group_y_true,
-                                    group_y_pred,
-                                    zero_division=0.0,
-                                    output_dict=True,
-                                )
-                                groups_for_saving[group_name] = {
-                                    "report": group_report_dict,
-                                    "count": len(group_results),
-                                }
-
-                        # Save the report with group comparison
-                        save_classification_report(
-                            test_name,
-                            len(results),
-                            report_dict,
-                            output_file,
-                            groups=groups_for_saving,
-                        )
-                    else:
-                        # Standard save without groups
-                        save_classification_report(
-                            test_name, len(results), report_dict, output_file
-                        )
-
-                    terminalreporter.write_line(
-                        f"\nClassification report saved to: {output_file}"
-                    )
-
-        # If we have grouped results by metadata for this test function, create a comparison table
-        if test_func in group_by_metadata and group_by_metadata[test_func]:
-            groups = list(group_by_metadata[test_func].keys())
-            if len(groups) > 1:  # Only create comparison if there are multiple groups
-                terminalreporter.write_line("\nPrompt Template Comparison:")
-
-                # Calculate metrics for each group
-                group_metrics = {}
-                labels = set()  # Collect all unique labels across groups
-                for group_name, group_results in group_by_metadata[test_func].items():
-                    group_y_true = []
-                    group_y_pred = []
-
-                    for result in group_results:
-                        if result.expected is not None and result.actual is not None:
-                            group_y_true.append(str(result.expected))
-                            group_y_pred.append(str(result.actual))
-                            labels.add(str(result.expected))
-
-                    if group_y_true and group_y_pred:
-                        # Generate report dictionary for this group
-                        group_report_dict = classification_report(
-                            group_y_true,
-                            group_y_pred,
-                            zero_division=0.0,
-                            output_dict=True,
-                        )
-                        group_metrics[group_name] = {
-                            "report": group_report_dict,
-                            "count": len(group_results),
-                        }
-
-                        # We'll save the group reports together at the end
-                        # No need to save individual reports here
-
-                # Create group IDs for better table formatting with long prompts
-                group_ids = {group: f"G{i+1}" for i, group in enumerate(groups)}
-
-                # First show a legend table mapping IDs to actual group values
-                terminalreporter.write_line("\nGroup Legend:")
-                terminalreporter.write_line("-" * 80)
-                for group, group_id in group_ids.items():
-                    terminalreporter.write_line(f"{group_id}: {group}")
-                terminalreporter.write_line("-" * 80)
-
-                # Create the comparison table with short IDs
-                terminalreporter.write_line("\nMetrics Comparison:")
-                terminalreporter.write_line("-" * 80)
-
-                # Determine column widths for IDs (much shorter)
-                group_width = max(len(group_id) for group_id in group_ids.values())
-                group_width = max(group_width, len("Group"))
-                metric_width = 12
-
-                # Create the header row
-                header = f"{'Metric':<15} | {'Class':<10} |"
-                for group in groups:
-                    group_id = group_ids[group]
-                    header += f" {group_id:<{group_width}} |"
-                terminalreporter.write_line(header)
-                terminalreporter.write_line(
-                    "-" * (17 + 12 + (group_width + 3) * len(groups))
+        # Check if we need to save to a file
+        first_nodeid = next(
+            (
+                nodeid
+                for nodeid in test_results.keys()
+                if test_name in nodeid.split("::")[-1]
+            ),
+            None,
+        )
+        if first_nodeid and first_nodeid in output_file_configs:
+            output_file = output_file_configs[first_nodeid]
+            if output_file:
+                # Save the report with group comparison
+                save_classification_report(
+                    test_name,
+                    groups,
+                    output_file,
                 )
-
-                # Add rows for precision, recall, f1 for each class
-                for metric in ["precision", "recall", "f1-score"]:
-                    for label in sorted(labels):
-                        row = f"{metric:<15} | {str(label):<10} |"
-                        for group in groups:
-                            group_id = group_ids[group]
-                            if group in group_metrics:
-                                report = group_metrics[group]["report"]
-                                if str(label) in report:
-                                    value = report[str(label)].get(metric, 0.0)
-                                    row += f" {value:>{group_width}.2f} |"
-                                else:
-                                    row += f" {'':<{group_width}} |"
-                            else:
-                                row += f" {'':<{group_width}} |"
-                        terminalreporter.write_line(row)
-
-                # Add accuracy row
-                row = f"{'accuracy':<15} | {'':<10} |"
-                for group in groups:
-                    group_id = group_ids[group]
-                    if group in group_metrics:
-                        report = group_metrics[group]["report"]
-                        value = report.get("accuracy", 0.0)
-                        row += f" {value:>{group_width}.2f} |"
-                    else:
-                        row += f" {'':<{group_width}} |"
-                terminalreporter.write_line(row)
-
-                # Add support row
-                row = f"{'support':<15} | {'':<10} |"
-                for group in groups:
-                    group_id = group_ids[group]
-                    if group in group_metrics:
-                        row += f" {group_metrics[group]['count']:>{group_width}} |"
-                    else:
-                        row += f" {'':<{group_width}} |"
-                terminalreporter.write_line(row)
-
-                terminalreporter.write_line("-" * 80)
-
-                # Also show individual reports if user wants detailed information
-                for group_name, group_results in group_by_metadata[test_func].items():
-                    group_y_true = []
-                    group_y_pred = []
-
-                    for result in group_results:
-                        if result.expected is not None and result.actual is not None:
-                            group_y_true.append(str(result.expected))
-                            group_y_pred.append(str(result.actual))
-
-                    if group_y_true and group_y_pred:
-                        # Generate report dictionary for this group
-                        group_report_dict = classification_report(
-                            group_y_true,
-                            group_y_pred,
-                            zero_division=0.0,
-                            output_dict=True,
-                        )
-
-                        # Format the text report using our utility function
-                        group_text_report = format_report_as_text(
-                            f"{test_name} (Group: {group_name})",
-                            len(group_results),
-                            group_report_dict,
-                        )
-
-                        # Write to terminal with a separator
-                        terminalreporter.write_line("-" * 40)
-                        for line in group_text_report.split("\n"):
-                            terminalreporter.write_line(line)
+                terminalreporter.write_line(
+                    f"\nClassification report saved to: {output_file}"
+                )
 
     terminalreporter.write_sep("=", "End of LLM Evaluation Results")

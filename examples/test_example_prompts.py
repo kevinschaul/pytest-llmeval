@@ -26,6 +26,6 @@ def test_parametrized_prompt_template(llmeval_result, prompt_template, test_case
         expected=test_case["expected"],
         actual=is_computer_related(prompt_template, test_case["input"]["text"]),
         input_data=test_case["input"],
-        group=prompt_template,  # Use the group parameter to group results by prompt template
+        group=prompt_template,
     )
     assert llmeval_result.is_correct()
