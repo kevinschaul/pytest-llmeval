@@ -6,9 +6,13 @@
 
 A pytest plugin to evaluate/benchmark LLM prompts
 
----
+## Features
 
-This [pytest](https://github.com/pytest-dev/pytest) plugin was generated with [Cookiecutter](https://github.com/audreyr/cookiecutter) along with [@hackebrot](https://github.com/hackebrot)'s [cookiecutter-pytest-plugin](https://github.com/pytest-dev/cookiecutter-pytest-plugin) template.
+- *Simple interface*: Just mark which tests are LLM evals and store the results
+- *Evaluation metrics*: Get comprehensive classification metrics including precision, recall, and F1 scores
+- *Grouped evaluations*: Compare how different prompts or models perform acorss your test cases
+- *File export*: Save evaluation reports to file for monitoring performance changes over time
+- *Pytest integration*: Evaluations fit right in with your project's other tests
 
 ## Usage
 
@@ -61,7 +65,7 @@ Run test like normal (with `uv run pytest` or similar) When the tests complete, 
 weighted avg       0.44      0.67      0.53         3
 ```
 
-### Comparing different prompts
+### Comparing across variables like different prompts or models
 
 You can run compare different prompts or other variables by specifying `llmeval.set_result()`'s `group=` parameter:
 
@@ -128,13 +132,24 @@ def test_prompts(llmeval_result, prompt_template, test_case):
     pass
 ```
 
-## API
+The test report would be saved to "results/test_prompts.txt".
 
-TODO
+## API
 
 ### `@pytest.mark.llmeval()`
 
 Marks a test function for evaluation. The test function will be passed the parameter `llmeval_result`.
+
+**Parameters**:
+
+- `file_path` (str, optional): Path where the evaluation report will be saved. If not provided, the report will only be displayed in the test output.
+
+**Injected parameters**:
+
+- `llmeval_result`: An object to track test evaluation results with the following methods:
+
+  - `set_result(expected: str, actual: str, input_data: str | dict, group?: str)`: Record the details of this test result
+  - `is_correct() -> bool`: Returns whether the expected result equals the actual result
 
 ## Installation
 
@@ -148,6 +163,8 @@ pipx install pytest-llmeval
 
 Contributions are very welcome. Tests can be run with `uv run pytest`, please ensure
 the coverage at least stays the same before you submit a pull request.
+
+This [pytest](https://github.com/pytest-dev/pytest) plugin was generated with [Cookiecutter](https://github.com/audreyr/cookiecutter) along with [@hackebrot](https://github.com/hackebrot)'s [cookiecutter-pytest-plugin](https://github.com/pytest-dev/cookiecutter-pytest-plugin) template.
 
 ## License
 
