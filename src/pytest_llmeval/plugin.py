@@ -3,10 +3,6 @@ from pathlib import Path
 from collections import defaultdict
 from sklearn.metrics import classification_report
 
-# Store all results from decorated tests
-test_results = {}
-# Store output file configurations
-output_file_configs = {}
 
 DEFAULT_GROUP = "overall"
 
@@ -34,16 +30,31 @@ class LLMEvalReportPlugin:
     def __init__(self, config):
         self.config = config
         self.llmeval_nodes = set()
+        self.llmeval_results = {}
+        self.llmeval_kwargs = {}
 
     @pytest.hookimpl(tryfirst=True)
     def pytest_runtest_setup(self, item):
         """Identify and track tests with llmeval marker."""
         marker = item.get_closest_marker("llmeval")
-        if marker:
-            self.llmeval_nodes.add(item.nodeid)
+        if not marker:
+            return
 
-            if marker.kwargs.get("output_file"):
-                output_file_configs[item.nodeid] = marker.kwargs.get("output_file")
+        self.llmeval_nodes.add(item.nodeid)
+
+        test_id = self.get_test_id(item.nodeid)
+        config = self.llmeval_kwargs.setdefault(test_id, {})
+
+        analysis_func = marker.kwargs.get("analysis_func")
+        output_file = marker.kwargs.get("output_file")
+
+        if analysis_func:
+            config["analysis_func"] = analysis_func
+
+        # Only store output_file if no analysis_func is present
+        # TODO warn user if they provided both
+        elif output_file and not config.get("analysis_func"):
+            config["output_file"] = output_file
 
     @pytest.hookimpl(tryfirst=True)
     def pytest_report_teststatus(self, report):
@@ -52,61 +63,53 @@ class LLMEvalReportPlugin:
             if report.when == "call":
                 return "llmeval", "L", "LLMEVAL"
 
+    def get_result_for_test(self, nodeid):
+        """Create or retrieve a result object for a test."""
+        if nodeid not in self.llmeval_results:
+            self.llmeval_results[nodeid] = ClassificationResult()
+        return self.llmeval_results[nodeid]
 
-def pytest_configure(config):
-    config.addinivalue_line(
-        "markers",
-        "llmeval(output_file=None): mark test as an LLM evaluation test with optional output file parameter",
-    )
-    test_results.clear()
-    output_file_configs.clear()
-    config.pluginmanager.register(LLMEvalReportPlugin(config), "llmeval_reporter")
+    def save_report(self, output_path, lines):
+        """Save report to a file."""
+        output_path = Path(output_path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(output_path, "w") as f:
+            f.write("\n".join(lines))
 
+    def analysis_func_classification_report(self, test_id, results):
+        """Default analysis function that generates a classification report for results.
 
-@pytest.fixture
-def llmeval_result(request):
-    """Fixture to provide a result object for tests with the llmeval marker."""
-    marker = request.node.get_closest_marker("llmeval")
-    if marker:
-        # Create a new classification result
-        result_obj = ClassificationResult()
+        Args:
+            test_id: The name of the test function
+            results: List of ClassificationResult objects
 
-        # Store in our global results dictionary
-        test_results[request.node.nodeid] = result_obj
+        Returns:
+            List of strings to be printed in the terminal
+        """
+        lines = []
+        lines.append(f"# LLM Eval: {test_id}")
 
-        return result_obj
-    return None
+        # Group results by their group attribute
+        grouped_results = defaultdict(list)
+        for result in results:
+            group = result.group or DEFAULT_GROUP
+            grouped_results[group].append(result)
 
+        for group_name, group_results in grouped_results.items():
+            # Extract expected and actual values
+            pairs = [
+                (r.expected, r.actual)
+                for r in group_results
+                if r.expected is not None and r.actual is not None
+            ]
 
-def get_grouped_results(test_results):
-    """Group `test_results` by test function and group"""
-    grouped = defaultdict(lambda: defaultdict(list))
+            if not pairs:
+                continue
 
-    for nodeid, result in test_results.items():
-        # Extract the test function name (remove parameter part)
-        test_func = nodeid.split("[")[0]
-        group = result.group or DEFAULT_GROUP
-        grouped[test_func][group].append(result)
+            group_y_true, group_y_pred = zip(*pairs)
+            group_y_true = [str(y) for y in group_y_true]
+            group_y_pred = [str(y) for y in group_y_pred]
 
-    return grouped
-
-
-def format_report_as_text(test_func, grouped):
-    """Generate a metrics table for each grouped result"""
-    lines = []
-    test_name = test_func.split("::")[-1]
-    lines.append(f"# LLM Eval: {test_name}")
-
-    for group_name, group_results in grouped.items():
-        group_y_true = []
-        group_y_pred = []
-
-        for result in group_results:
-            if result.expected is not None and result.actual is not None:
-                group_y_true.append(str(result.expected))
-                group_y_pred.append(str(result.actual))
-
-        if group_y_true and group_y_pred:
             report = classification_report(
                 group_y_true,
                 group_y_pred,
@@ -115,47 +118,90 @@ def format_report_as_text(test_func, grouped):
 
             lines.append(f"\n## Group: {group_name}")
             lines.append(report)
-    return lines
+
+        # Save report if configured
+        config = self.llmeval_kwargs.get(test_id, {})
+        output_file = config.get("output_file")
+
+        if output_file:
+            self.save_report(output_file, lines)
+            lines.append(f"\nClassification report saved to: {output_file}")
+
+        return lines
+
+    def get_analysis_func(self, test_id):
+        """Get the appropriate analysis function for a test function."""
+        config = self.llmeval_kwargs.get(test_id, {})
+
+        if config.get("analysis_func"):
+            return config["analysis_func"]
+        else:
+            return self.analysis_func_classification_report
+
+    def get_test_id(self, nodeid):
+        return nodeid.split("[")[0]
+
+    @pytest.hookimpl(trylast=True)
+    def pytest_terminal_summary(self, terminalreporter, exitstatus):
+        """Add a final section to the terminal summary."""
+        if not self.llmeval_results:
+            return
+
+        # First collect all results by test id
+        results_by_test_id = defaultdict(list)
+        for nodeid, result in self.llmeval_results.items():
+            test_id = self.get_test_id(nodeid)
+            results_by_test_id[test_id].append(result)
+
+        # Process each test id with all its results
+        for test_id, results in results_by_test_id.items():
+            analysis_func = self.get_analysis_func(test_id)
+            output = analysis_func(test_id, results)
+
+            if not output:
+                continue
+
+            lines = output if isinstance(output, list) else [output]
+            for line in lines:
+                terminalreporter.write_line(line)
 
 
-def save_report(output_path, lines):
-    output_path = Path(output_path)
-
-    # Create parent directories if they don't exist
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-
-    with open(output_path, "w") as f:
-        f.write("\n".join(lines))
+# Plugin instance used to store state
+_plugin_instance = None
 
 
-@pytest.hookimpl(trylast=True)
-def pytest_terminal_summary(terminalreporter, exitstatus, config):
-    """Add a final section to the terminal summary with sklearn's classification report."""
-    if not test_results:
-        return
+def pytest_configure(config):
+    """Register the plugin."""
+    global _plugin_instance
 
-    grouped = get_grouped_results(test_results)
-    for test_func, test_grouped in grouped.items():
-        lines = format_report_as_text(test_func, test_grouped)
+    config.addinivalue_line(
+        "markers",
+        "llmeval(output_file=None, analysis_func=None): mark test as an LLM evaluation test with optional parameters. Note: when analysis_func is provided, output_file is ignored as the custom function handles its own output. The analysis_func should accept (test_id, grouped_results) parameters and can optionally return strings to display in the terminal.",
+    )
 
-        for line in lines:
-            terminalreporter.write_line(line)
+    _plugin_instance = LLMEvalReportPlugin(config)
+    config.pluginmanager.register(_plugin_instance, "llmeval_reporter")
 
-        test_name = test_func.split("::")[-1]
 
-        # Check if we need to save to a file
-        first_nodeid = next(
-            (
-                nodeid
-                for nodeid in test_results.keys()
-                if test_name in nodeid.split("::")[-1]
-            ),
-            None,
-        )
-        if first_nodeid and first_nodeid in output_file_configs:
-            output_file = output_file_configs[first_nodeid]
-            if output_file:
-                save_report(output_file, lines)
-                terminalreporter.write_line(
-                    f"\nClassification report saved to: {output_file}"
-                )
+def pytest_unconfigure(config):
+    """Unregister the plugin."""
+    global _plugin_instance
+
+    if _plugin_instance:
+        config.pluginmanager.unregister(_plugin_instance)
+        _plugin_instance = None
+
+
+@pytest.fixture
+def llmeval_result(request):
+    """Fixture to provide a result object for tests with the llmeval marker."""
+    global _plugin_instance
+
+    if not _plugin_instance:
+        return None
+
+    marker = request.node.get_closest_marker("llmeval")
+    if marker:
+        return _plugin_instance.get_result_for_test(request.node.nodeid)
+
+    return None

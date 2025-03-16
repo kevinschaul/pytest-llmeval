@@ -1,4 +1,4 @@
-# LLM Eval: test_prompts
+# LLM Eval: examples/test_example_prompts.py::test_prompts
 
 ## Group: Is this computer related? Say True or False
               precision    recall  f1-score   support

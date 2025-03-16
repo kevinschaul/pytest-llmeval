@@ -55,7 +55,7 @@ def test_example_basic(pytester):
     # Check that the table is printed
     run_result.stdout.fnmatch_lines(
         [
-            "# LLM Eval: test_basic",
+            "# LLM Eval: test_example_basic.py::test_basic",
             "",
             "## Group: overall",
             "*precision*recall*f1-score*support",
@@ -77,7 +77,7 @@ def test_example_prompts():
     )
     LineMatcher(run_result.stdout.split("\n")).fnmatch_lines(
         [
-            "# LLM Eval: test_prompts",
+            "# LLM Eval: examples/test_example_prompts.py::test_prompts",
             "",
             "## Group: Is this computer related? Say True or False",
             "*precision*recall*f1-score*support",
@@ -96,7 +96,7 @@ def test_example_prompts():
 
     expected_contents = textwrap.dedent(
         """
-        # LLM Eval: test_prompts
+        # LLM Eval: examples/test_example_prompts.py::test_prompts
 
         ## Group: Is this computer related? Say True or False
                       precision    recall  f1-score   support
@@ -153,7 +153,7 @@ def test_output_file(testdir, tmp_path):
 
     expected_contents = textwrap.dedent(
         """
-        # LLM Eval: test_with_output_file
+        # LLM Eval: test_output_file.py::test_with_output_file
 
         ## Group: overall
                       precision    recall  f1-score   support
@@ -172,3 +172,33 @@ def test_output_file(testdir, tmp_path):
 
     if output_file.exists():
         output_file.unlink()
+
+
+def test_analysis_func(pytester):
+    pytester.makepyfile(
+        """
+        import pytest
+
+        def custom_analysis_func(test_id, test_grouped):
+            return ['hello from custom_analysis_func', str(len(test_grouped))]
+        
+        TEST_CASES = [
+            {"input": "I need to debug this Python code", "expected": True},
+            {"input": "The cat jumped over the lazy dog", "expected": False},
+            {"input": "My monitor keeps flickering", "expected": True},
+        ]
+
+        @pytest.mark.llmeval(analysis_func=custom_analysis_func)
+        @pytest.mark.parametrize("test_case", TEST_CASES)
+        def test_with_result(llmeval_result, test_case):
+            llmeval_result.set_result(
+                input_data=test_case["input"],
+                expected=test_case["expected"],
+                actual=True,
+            )
+    """
+    )
+
+    result = pytester.runpytest("-v")
+    result.stdout.fnmatch_lines(['hello from custom_analysis_func', '3'])
+    assert result.ret == 0
