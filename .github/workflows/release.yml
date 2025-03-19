@@ -50,6 +50,6 @@ jobs:
         run: uv sync --all-extras --dev
 
       - name: Build
-        run: uv run build
+        run: uv build
       - name: Publish
         uses: pypa/gh-action-pypi-publish@release/v1
