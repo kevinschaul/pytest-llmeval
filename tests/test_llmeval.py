@@ -3,6 +3,9 @@ import os
 import subprocess
 
 from pytest import LineMatcher
+import pytest
+
+from pytest_llmeval.plugin import LLMEvalException
 
 
 def test_marker_registered(pytester):
@@ -202,3 +205,19 @@ def test_analysis_func(pytester):
     result = pytester.runpytest("-v")
     result.stdout.fnmatch_lines(['hello from custom_analysis_func', '3'])
     assert result.ret == 0
+
+
+def test_invalid_args(pytester):
+    """Should raise error if output_file and analysis_func are both specified"""
+    pytester.makepyfile(
+        """
+        import pytest
+        @pytest.mark.llmeval(output_file="out.txt", analysis_func=lambda x, y: x)
+        def test_with_result(llmeval_result):
+            pass
+    """
+    )
+
+    result = pytester.runpytest("-v")
+    result.stdout.fnmatch_lines(['*LLMEvalException*'])
+    assert result.ret != 0

@@ -7,6 +7,10 @@ from sklearn.metrics import classification_report
 DEFAULT_GROUP = "overall"
 
 
+class LLMEvalException(Exception):
+    pass
+
+
 class ClassificationResult:
     def __init__(self, expected=None, actual=None, input_data=None, group=None):
         self.expected = expected
@@ -48,13 +52,15 @@ class LLMEvalReportPlugin:
         analysis_func = marker.kwargs.get("analysis_func")
         output_file = marker.kwargs.get("output_file")
 
+        if analysis_func and output_file:
+            raise LLMEvalException(
+                "`output_file` does nothing when `analysis_func` is specified"
+            )
+        elif output_file:
+            config["output_file"] = output_file
+
         if analysis_func:
             config["analysis_func"] = analysis_func
-
-        # Only store output_file if no analysis_func is present
-        # TODO warn user if they provided both
-        elif output_file and not config.get("analysis_func"):
-            config["output_file"] = output_file
 
     @pytest.hookimpl(tryfirst=True)
     def pytest_report_teststatus(self, report):
