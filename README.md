@@ -8,11 +8,12 @@ A pytest plugin to evaluate/benchmark LLM prompts
 
 ## Features
 
-- *Simple interface*: Just mark which tests are LLM evals and store the results
-- *Evaluation metrics*: Get comprehensive classification metrics including precision, recall, and F1 scores
-- *Grouped evaluations*: Compare how different prompts or models perform acorss your test cases
-- *File export*: Save evaluation reports to file for monitoring performance changes over time
-- *Pytest integration*: Evaluations fit right in with your project's other tests
+- **Simple interface**: Just mark which tests are LLM evals and store the results
+- **Evaluation metrics**: Get comprehensive classification metrics including precision, recall, and F1 scores
+- **Grouped evaluations**: Compare how different prompts or models perform acorss your test cases
+- **File export**: Save evaluation reports to file for monitoring performance changes over time
+- **Custom analysis function**: Write your own analysis function if you prefer
+- **Pytest integration**: Evaluations fit right in with your project's other tests
 
 ## Usage
 
@@ -134,6 +135,20 @@ def test_prompts(llmeval_result, prompt_template, test_case):
 
 The test report would be saved to "results/test_prompts.txt".
 
+### Custom analysis functions
+
+If you prefer to do a different analysis across the results, pass a function with the `analysis_func` parameter:
+
+```python
+def my_analysis(test_id, results):
+    print(f"My custom analysis function processed {len(results)} results")
+
+@pytest.mark.llmeval(analysis_func=my_analyis)
+def test_prompts(llmeval_result, prompt_template, test_case):
+    # Your test code here
+    pass
+```
+
 ## API
 
 ### `@pytest.mark.llmeval()`
@@ -144,12 +159,21 @@ Marks a test function for evaluation. The test function will be passed the param
 
 - `file_path` (str, optional): Path where the evaluation report will be saved. If not provided, the report will only be displayed in the test output.
 
+- `analysis_func(test_id: str, results: ClassificationResult[]) -> str[]` (function, optional): A custom analysis function to run across all results. Do whatever calculations you want in here. Optionally return a list of strings to be printed to stdout.
+
 **Injected parameters**:
 
 - `llmeval_result`: An object to track test evaluation results with the following methods:
 
   - `set_result(expected: str, actual: str, input_data: str | dict, group?: str)`: Record the details of this test result
   - `is_correct() -> bool`: Returns whether the expected result equals the actual result
+
+### `ClassificationResult`
+
+- `expected`: The expected result
+- `actual`: The actual result
+- `input`: Input data used for this test case
+- `group` (optional): An optional variable to group by before running analyses. E.g. pass a prompt to group results by prompt
 
 ## Installation
 
