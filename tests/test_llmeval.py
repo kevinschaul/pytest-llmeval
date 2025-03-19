@@ -3,9 +3,6 @@ import os
 import subprocess
 
 from pytest import LineMatcher
-import pytest
-
-from pytest_llmeval.plugin import LLMEvalException
 
 
 def test_marker_registered(pytester):
@@ -203,7 +200,7 @@ def test_analysis_func(pytester):
     )
 
     result = pytester.runpytest("-v")
-    result.stdout.fnmatch_lines(['hello from custom_analysis_func', '3'])
+    result.stdout.fnmatch_lines(["hello from custom_analysis_func", "3"])
     assert result.ret == 0
 
 
@@ -219,5 +216,5 @@ def test_invalid_args(pytester):
     )
 
     result = pytester.runpytest("-v")
-    result.stdout.fnmatch_lines(['*LLMEvalException*'])
+    result.stdout.fnmatch_lines(["*LLMEvalException*"])
     assert result.ret != 0
