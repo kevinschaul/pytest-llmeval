@@ -218,3 +218,35 @@ def test_invalid_args(pytester):
     result = pytester.runpytest("-v")
     result.stdout.fnmatch_lines(["*LLMEvalException*"])
     assert result.ret != 0
+
+def test_cache(pytester):
+    pytester.makepyfile(
+        """
+        import pytest
+        import time
+
+        TEST_CASES = [
+            {"input": "I need to debug this Python code", "expected": True},
+            {"input": "The cat jumped over the lazy dog", "expected": False},
+            {"input": "My monitor keeps flickering", "expected": True},
+        ]
+
+        @pytest.mark.llmeval()
+        @pytest.mark.parametrize("test_case", TEST_CASES)
+        def test_with_result(llmeval_result, test_case):
+            print("RUNNING THE TEST")
+            llmeval_result.set_result(
+                input_data=test_case["input"],
+                expected=test_case["expected"],
+                actual=True,
+            )
+    """
+    )
+
+    result0 = pytester.runpytest("--cache-clear", "--cache-show")
+    result0.stdout.fnmatch_lines(["cache is empty"])
+    result1 = pytester.runpytest_subprocess("-v", "-s")
+    result1.stdout.fnmatch_lines(["*LLMEVAL_UNCACHED", "*LLMEVAL_UNCACHED", "*LLMEVAL_UNCACHED"])
+    result2 = pytester.runpytest("-v", "-s")
+    result2.stdout.fnmatch_lines(["*LLMEVAL_CACHED", "*LLMEVAL_CACHED", "*LLMEVAL_CACHED"])
+

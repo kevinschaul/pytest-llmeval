@@ -1,4 +1,8 @@
+import json
+import hashlib
 import pytest
+import pickle
+import base64
 from pathlib import Path
 from collections import defaultdict
 from sklearn.metrics import classification_report
@@ -12,11 +16,26 @@ class LLMEvalException(Exception):
 
 
 class ClassificationResult:
-    def __init__(self, expected=None, actual=None, input_data=None, group=None):
+    def __init__(
+        self, expected=None, actual=None, input_data=None, group=None, from_cache=False
+    ):
         self.expected = expected
         self.actual = actual
         self.input = input_data
         self.group = group
+        self.from_cache = from_cache
+
+    def __repr__(self):
+        return str(self.__dict__)
+
+    def to_dict(self):
+        """Return a dict representation for serialization"""
+        return {
+            "expected": self.expected,
+            "actual": self.actual,
+            "input": self.input,
+            "group": self.group,
+        }
 
     def set_result(self, expected, actual, input_data=None, group=DEFAULT_GROUP):
         """Set the main result data."""
@@ -51,6 +70,7 @@ class LLMEvalReportPlugin:
 
         analysis_func = marker.kwargs.get("analysis_func")
         output_file = marker.kwargs.get("output_file")
+        use_cache = marker.kwargs.get("cache", True)
 
         if analysis_func and output_file:
             raise LLMEvalException(
@@ -62,12 +82,17 @@ class LLMEvalReportPlugin:
         if analysis_func:
             config["analysis_func"] = analysis_func
 
+        config["use_cache"] = use_cache
+
     @pytest.hookimpl(tryfirst=True)
     def pytest_report_teststatus(self, report):
         """Intercept test reports for llmeval tests."""
         if hasattr(report, "nodeid") and report.nodeid in self.llmeval_nodes:
             if report.when == "call":
-                return "llmeval", "L", "LLMEVAL"
+                if self.llmeval_results[report.nodeid].from_cache:
+                    return "llmeval", "C", "LLMEVAL_CACHED"
+                else:
+                    return "llmeval", "L", "LLMEVAL_UNCACHED"
 
     def get_result_for_test(self, nodeid):
         """Create or retrieve a result object for a test."""
@@ -123,6 +148,7 @@ class LLMEvalReportPlugin:
             )
 
             lines.append(f"\n## Group: {group_name}")
+
             lines.append(report)
 
         # Save report if configured
@@ -170,6 +196,49 @@ class LLMEvalReportPlugin:
             lines = output if isinstance(output, list) else [output]
             for line in lines:
                 terminalreporter.write_line(line)
+
+    @pytest.hookimpl(wrapper=True)
+    def pytest_runtest_call(self, item):
+        marker = item.get_closest_marker("llmeval")
+        if marker:
+            use_cache = marker.kwargs.get("cache", True)
+            if use_cache:
+                cache_key = get_cache_key(item)
+                cached_data = self.config.cache.get(cache_key, None)
+
+                if cached_data:
+                    # Decode base64 string back to bytes, then unpickle
+                    pickled_bytes = base64.b64decode(cached_data)
+                    res = pickle.loads(pickled_bytes)
+                    res.from_cache = True
+                    self.llmeval_results[item.nodeid] = res
+                else:
+                    # yield effectively pauses execution and calls the regular pytest function
+                    yield
+                    res = self.llmeval_results[item.nodeid]
+
+                    # Pickle the result, encode as base64 string for storage
+                    pickled_bytes = pickle.dumps(res)
+                    encoded_data = base64.b64encode(pickled_bytes).decode("utf-8")
+                    self.config.cache.set(cache_key, encoded_data)
+
+                return res
+
+        # In all other cases, yield aka run the regular pytest function
+        yield
+
+
+def get_cache_key(item):
+    """Generate a unique cache key for a pytest item."""
+    nodeid = item.nodeid
+
+    params = {}
+    if hasattr(item, "callspec") and hasattr(item.callspec, "params"):
+        params = item.callspec.params
+
+    # Convert params to a sorted, stable string representation for hashing
+    params_str = json.dumps(params, sort_keys=True)
+    return f"llmeval/{nodeid}/{hashlib.md5(params_str.encode()).hexdigest()}"
 
 
 # Plugin instance used to store state
