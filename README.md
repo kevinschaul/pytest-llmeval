@@ -2,7 +2,7 @@
 
 [![PyPI version](https://img.shields.io/pypi/v/pytest-llmeval.svg)](https://pypi.org/project/pytest-llmeval)
 [![Python versions](https://img.shields.io/pypi/pyversions/pytest-llmeval.svg)](https://pypi.org/project/pytest-llmeval)
-[![See Build Status on GitHub Actions](https://github.com/kevinschaul/pytest-llmeval/actions/workflows/main.yml/badge.svg)](https://github.com/kevinschaul/pytest-llmeval/actions/workflows/main.yml)
+[![See Build Status on GitHub Actions](https://github.com/kevinschaul/pytest-llmeval/actions/workflows/test.yml/badge.svg)](https://github.com/kevinschaul/pytest-llmeval/actions/workflows/test.yml)
 
 A pytest plugin to evaluate/benchmark LLM prompts
 
